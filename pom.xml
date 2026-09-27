@@ -89,6 +89,12 @@
             <version>5.7.17</version>
         </dependency>
 
+        <!-- RabbitMQ -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+
         <!-- Google Guava (includes BloomFilter) -->
         <dependency>
             <groupId>com.google.guava</groupId>

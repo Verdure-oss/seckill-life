@@ -1,5 +1,6 @@
 package com.hmdp.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
 import com.hmdp.config.RabbitConfig;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.VoucherOrder;
@@ -15,6 +16,8 @@ import org.redisson.api.RedissonClient;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -54,10 +57,10 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         SECKILL_SCRIPT.setResultType(Long.class);
     }
 
-    @Resource
+    @Autowired
     private RabbitTemplate rabbitTemplate;
 
-    @Resource
+    @Autowired
     private StringRedisTemplate stringRedisTemplate;
 
     private IVoucherOrderService proxy;
@@ -80,6 +83,12 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         }
 
         //3.发布消息到RabbitMQ实现异步下单
+        VoucherOrder voucherOrder = new VoucherOrder();
+        voucherOrder.setId(orderId);
+        voucherOrder.setUserId(userId);
+        voucherOrder.setVoucherId(voucherId);
+
+        // 将订单信息以消息形式发送到 RabbitMQ
         Map<String, Object> orderMessage = new HashMap<>();
         orderMessage.put("orderId", orderId);
         orderMessage.put("userId", userId);
@@ -101,68 +110,3 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
         return Result.ok(orderId);
     }
-
-    /**
-     * RabbitMQ消费者：异步处理订单消息
-     */
-    @RabbitListener(queues = RabbitConfig.SECKILL_ORDER_QUEUE)
-    public void handleVoucherOrderMessage(Map<String, Object> orderMessage) {
-        if (orderMessage == null || orderMessage.isEmpty()) {
-            log.warn("收到空订单消息，忽略处理");
-            return;
-        }
-
-        Long userId = Long.valueOf(orderMessage.get("userId").toString());
-        Long orderId = Long.valueOf(orderMessage.get("orderId").toString());
-        Long voucherId = Long.valueOf(orderMessage.get("voucherId").toString());
-
-        // 构造订单对象
-        VoucherOrder voucherOrder = new VoucherOrder();
-        voucherOrder.setId(orderId);
-        voucherOrder.setUserId(userId);
-        voucherOrder.setVoucherId(voucherId);
-
-        // 使用分布式锁防止重复下单
-        RLock lock = redissonClient.getLock("lock:order:" + userId);
-        boolean isLock = lock.tryLock();
-        if (!isLock) {
-            log.warn("用户 {} 已存在下单操作，忽略重复消息", userId);
-            return;
-        }
-
-        try {
-            proxy.createVoucherOrder(voucherOrder);
-        } finally {
-            lock.unlock();
-        }
-    }
-
-    @Transactional
-    public void createVoucherOrder(VoucherOrder voucherOrder){
-        //一人一单
-        Long userId = voucherOrder.getUserId();
-
-        //查询订单
-        int count = query().eq("user_id", userId).eq("voucher_id", voucherOrder.getVoucherId()).count();
-
-        //判断是否存在
-        if (count > 0) {
-            log.error("已购买");
-            return;
-        }
-
-        //5.更新库存 cas法
-        boolean success = seckillVoucherService.update()
-                .setSql("stock = stock - 1")//set stock = stock - 1
-                .eq("voucher_id", voucherOrder.getVoucherId()).gt("stock", 0)//where voucher_id = ? and stock = ?
-                .update();
-
-        //6.判断是否更新成功
-        if (!success) {
-            log.error("库存不足");
-            return;
-        }
-
-        save(voucherOrder);
-    }
-}

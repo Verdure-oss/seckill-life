@@ -9,8 +9,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.util.StreamUtils;
 
-import javax.annotation.PostConstruct;
-import javax.annotation.PreDestroy;
+import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
@@ -39,7 +38,7 @@ class SeckillScriptTest {
         // seckill.lua 的显著内容（库存 key 前缀带冒号），而 lock.lua 不存在
         String scriptContent = script.getScriptAsString();
         assertThat(scriptContent).contains("seckill:stock:");
-        assertThat(scriptContent).contains("stream.orders");
+        assertThat(scriptContent).contains("seckill:order:");
     }
 
     /** 2. 解锁脚本应加载 unlock.lua（曾错误引用 lock.lua） */
@@ -77,27 +76,21 @@ class SeckillScriptTest {
         assertThat(lua).doesNotContain("KEYs[1]");
     }
 
-    /** 5. 秒杀订单消费者线程应通过 @PostConstruct 启动（曾因缺失而永不消费） */
+    /** 5. 秒杀订单消费者应使用 @RabbitListener 注解（Redis Stream 替换为 RabbitMQ） */
     @Test
-    void consumerThread_shouldBeStartedViaPostConstruct() {
-        boolean hasPostConstructOnInit = Arrays.stream(VoucherOrderServiceImpl.class.getDeclaredMethods())
-                .filter(m -> m.getName().equals("init"))
-                .anyMatch(m -> m.isAnnotationPresent(PostConstruct.class));
+    void consumer_shouldUseRabbitListener() {
+        boolean hasRabbitListener = Arrays.stream(VoucherOrderServiceImpl.class.getDeclaredMethods())
+                .anyMatch(m -> m.isAnnotationPresent(RabbitListener.class));
 
-        assertThat(hasPostConstructOnInit)
-                .as("VoucherOrderServiceImpl.init() 应标注 @PostConstruct")
+        assertThat(hasRabbitListener)
+                .as("VoucherOrderServiceImpl 应有 @RabbitListener 方法")
                 .isTrue();
     }
 
-    /** 6. 消费者线程应有 @PreDestroy 优雅关闭钩子（避免应用关闭时残留报错） */
+    /** 6. 秒杀流程中不应再使用 Redis Stream（已迁移到 RabbitMQ） */
     @Test
-    void consumerThread_shouldHaveGracefulShutdown() throws Exception {
-        boolean hasPreDestroyOnDestroy = Arrays.stream(VoucherOrderServiceImpl.class.getDeclaredMethods())
-                .filter(m -> m.getName().equals("destroy"))
-                .anyMatch(m -> m.isAnnotationPresent(PreDestroy.class));
-
-        assertThat(hasPreDestroyOnDestroy)
-                .as("VoucherOrderServiceImpl 应有 @PreDestroy destroy() 优雅关闭消费者线程")
-                .isTrue();
+    void seckillFlow_shouldNotUseRedisStream() throws Exception {
+        String lua = readResource("seckill.lua");
+        assertThat(lua).doesNotContain("stream.orders");
     }
 }
