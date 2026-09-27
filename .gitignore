@@ -35,3 +35,7 @@ build/
 ### Local study notes & artifacts ###
 Redis实战篇.md
 Redis实战篇.assets/
+
+### Local configuration with credentials ###
+application-local.yaml
+.claude/settings.local.json
