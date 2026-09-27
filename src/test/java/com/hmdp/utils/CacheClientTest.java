@@ -31,6 +31,7 @@ class CacheClientTest {
     private StringRedisTemplate stringRedisTemplate;
     private ValueOperations<String, String> valueOps;
     private CacheClient cacheClient;
+    private LocalCache<String, String> localCache;
 
     @BeforeEach
     void setUp() {
@@ -38,7 +39,8 @@ class CacheClientTest {
         valueOps = mock(ValueOperations.class);
         when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
 
-        cacheClient = new CacheClient(stringRedisTemplate);
+        localCache = new LocalCache<>();
+        cacheClient = new CacheClient(stringRedisTemplate, localCache);
     }
 
     private Shop buildShop(Long id) {

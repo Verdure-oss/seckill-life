@@ -66,7 +66,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
 //        Shop shop = queryWithLogicalExpire(id);
 
         Shop shop = cacheClient
-                .queryWithLogicalExpire(CACHE_SHOP_KEY, id, Shop.class, this::getById, CACHE_SHOP_TTL, TimeUnit.MINUTES, RedisConstants.BLOOM_FILTER_SHOP);
+                .queryWithMultiLevelCache(CACHE_SHOP_KEY, id, Shop.class, this::getById, CACHE_SHOP_TTL, TimeUnit.MINUTES, RedisConstants.BLOOM_FILTER_SHOP);
 
         if (shop==null) {
             return Result.fail("店铺不存在");
@@ -249,8 +249,8 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         }
         updateById(shop);
 
-        String key = CACHE_SHOP_KEY + shop.getId();
-        stringRedisTemplate.delete(key);
+        // 清除多级缓存
+        cacheClient.evictMultiLevel(CACHE_SHOP_KEY, id);
 
 
         return Result.ok();

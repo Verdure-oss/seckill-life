@@ -22,9 +22,11 @@ import static com.hmdp.utils.RedisConstants.*;
 public class CacheClient {
 
     private final StringRedisTemplate stringRedisTemplate;
+    private final LocalCache<String, String> localCache;
 
-    public CacheClient(StringRedisTemplate stringRedisTemplate) {
+    public CacheClient(StringRedisTemplate stringRedisTemplate, LocalCache<String, String> localCache) {
         this.stringRedisTemplate = stringRedisTemplate;
+        this.localCache = localCache;
     }
 
     /**
@@ -151,6 +153,91 @@ public class CacheClient {
         }
 
         return r;
+    }
+
+    /**
+     * 多级缓存查询 (Caffeine + Redis)
+     * <p>
+     * 查询逻辑:
+     * 1. 本地缓存命中 → 直接返回
+     * 2. Redis 缓存命中 → 回填本地缓存并返回
+     * 3. 布隆过滤器判断是否穿透 → 若可能不存在，跳过 DB 查询
+     * 4. 查询数据库 → 回写双层缓存
+     * </p>
+     * @param keyPrefix 缓存键前缀
+     * @param id 主键 ID
+     * @param type 返回类型
+     * @param dbFallback 数据库查询回调
+     * @param time 缓存 TTL
+     * @param unit 时间单位
+     * @param bloomFilterName 布隆过滤器名称
+     * @return 查询结果
+     */
+    public <R, ID> R queryWithMultiLevelCache(
+            String keyPrefix, ID id, Class<R> type, Function<ID, R> dbFallback, Long time, TimeUnit unit,
+            String bloomFilterName) {
+        String key = keyPrefix + id;
+
+        // 1. 本地缓存命中
+        String localJson = localCache.get(key);
+        if (StrUtil.isNotBlank(localJson)) {
+            log.debug("本地缓存命中: {}", key);
+            return JSONUtil.toBean(localJson, type);
+        }
+
+        // 2. Redis 缓存命中
+        String json = stringRedisTemplate.opsForValue().get(key);
+        if (StrUtil.isNotBlank(json)) {
+            log.debug("Redis缓存命中: {}", key);
+            // 回填本地缓存
+            localCache.put(key, json);
+            return JSONUtil.toBean(json, type);
+        }
+        // 缓存空值处理
+        if (json != null) {
+            return null;
+        }
+
+        // 3. 布隆过滤器拦截
+        if (bloomFilterName != null && !BloomFilterUtils.mightContain(bloomFilterName, key)) {
+            log.debug("布隆过滤器拦截: {}", key);
+            return null;
+        }
+
+        // 4. 数据库查询
+        R r = dbFallback.apply(id);
+        if (r == null) {
+            // 缓存空值防止穿透
+            stringRedisTemplate.opsForValue().set(key, "", CACHE_NULL_TTL, TimeUnit.MINUTES);
+            return null;
+        }
+
+        // 回写双层缓存
+        String jsonStr = JSONUtil.toJsonStr(r);
+        localCache.put(key, jsonStr);
+        this.setWithRandomTTL(key, r, time - 3, time + 3, unit);
+
+        return r;
+    }
+
+    /**
+     * 设置带随机 TTL 的缓存 (用于多级缓存回写)
+     */
+    private void setWithRandomTTL(String key, Object value, Long minTime, Long maxTime, TimeUnit unit) {
+        stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(value), randomTTL(minTime, maxTime), unit);
+    }
+
+    /**
+     * 清除多级缓存 (用于更新场景)
+     */
+    public void evictMultiLevel(String keyPrefix, Object id) {
+        String key = keyPrefix + id;
+        // 清除本地缓存
+        localCache.evict(key);
+        // 清除 Redis 缓存
+        stringRedisTemplate.delete(key);
+        // 广播失效消息
+        stringRedisTemplate.convertAndSend("cache:invalidate", key);
     }
 
     /**
