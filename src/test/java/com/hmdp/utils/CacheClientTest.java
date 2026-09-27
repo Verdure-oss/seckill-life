@@ -64,7 +64,7 @@ class CacheClientTest {
         };
 
         // when
-        Shop result = cacheClient.queryWithLogicalExpire("cache:shop:", 1L, Shop.class, dbFallback, 30L, TimeUnit.MINUTES);
+        Shop result = cacheClient.queryWithLogicalExpire("cache:shop:", 1L, Shop.class, dbFallback, 30L, TimeUnit.MINUTES, RedisConstants.BLOOM_FILTER_SHOP);
 
         // then
         assertThat(result.getId()).isEqualTo(1L);
@@ -82,7 +82,7 @@ class CacheClientTest {
             throw new AssertionError("逻辑过期策略不应直接查库");
         };
 
-        Shop result = cacheClient.queryWithLogicalExpire("cache:shop:", 2L, Shop.class, dbFallback, 30L, TimeUnit.MINUTES);
+        Shop result = cacheClient.queryWithLogicalExpire("cache:shop:", 2L, Shop.class, dbFallback, 30L, TimeUnit.MINUTES, RedisConstants.BLOOM_FILTER_SHOP);
 
         assertThat(result).isNull();
     }
@@ -103,7 +103,7 @@ class CacheClientTest {
         Function<Long, Shop> dbFallback = id -> buildShop(30L);
 
         // when
-        Shop result = cacheClient.queryWithLogicalExpire("cache:shop:", 3L, Shop.class, dbFallback, 30L, TimeUnit.MINUTES);
+        Shop result = cacheClient.queryWithLogicalExpire("cache:shop:", 3L, Shop.class, dbFallback, 30L, TimeUnit.MINUTES, RedisConstants.BLOOM_FILTER_SHOP);
 
         // then 先返回旧值
         assertThat(result.getId()).isEqualTo(3L);
@@ -128,7 +128,7 @@ class CacheClientTest {
 
         Function<Long, Shop> dbFallback = id -> buildShop(40L);
 
-        Shop result = cacheClient.queryWithLogicalExpire("cache:shop:", 4L, Shop.class, dbFallback, 30L, TimeUnit.MINUTES);
+        Shop result = cacheClient.queryWithLogicalExpire("cache:shop:", 4L, Shop.class, dbFallback, 30L, TimeUnit.MINUTES, RedisConstants.BLOOM_FILTER_SHOP);
 
         assertThat(result.getId()).isEqualTo(4L);
         Thread.sleep(200);

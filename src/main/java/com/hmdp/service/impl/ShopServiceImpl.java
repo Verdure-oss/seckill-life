@@ -30,7 +30,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
+import com.hmdp.utils.RedisConstants;
+
 import static com.hmdp.utils.RedisConstants.*;
+
+import com.hmdp.utils.RedisConstants;
 
 /**
  * <p>
@@ -62,7 +66,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
 //        Shop shop = queryWithLogicalExpire(id);
 
         Shop shop = cacheClient
-                .queryWithLogicalExpire(CACHE_SHOP_KEY, id, Shop.class, this::getById, CACHE_SHOP_TTL, TimeUnit.MINUTES);
+                .queryWithLogicalExpire(CACHE_SHOP_KEY, id, Shop.class, this::getById, CACHE_SHOP_TTL, TimeUnit.MINUTES, RedisConstants.BLOOM_FILTER_SHOP);
 
         if (shop==null) {
             return Result.fail("店铺不存在");

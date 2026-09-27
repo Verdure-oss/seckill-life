@@ -27,15 +27,38 @@ public class CacheClient {
         this.stringRedisTemplate = stringRedisTemplate;
     }
 
+    /**
+     * 设置缓存，自动加入随机因子防止缓存雪崩。
+     * @param key 键
+     * @param value 值
+     * @param minTtl 最小TTL（单位由 unit 指定）
+     * @param maxTtl 最大TTL（单位由 unit 指定）
+     * @param unit 时间单位
+     */
+    public void setRandomTTL(String key, Object value, Long minTtl, Long maxTtl, TimeUnit unit) {
+        stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(value), randomTTL(minTtl, maxTtl), unit);
+    }
+
     public void set(String key, Object value, Long time, TimeUnit unit) {
         stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(value), time, unit);
     }
 
-    public void setWithLogicalExpire(String key, Object value, Long time, TimeUnit unit) {
+    /**
+     * 在 [minTtl, maxTtl] 范围内随机生成一个 TTL。
+     */
+    private static Long randomTTL(Long minTtl, Long maxTtl) {
+        if (minTtl.equals(maxTtl)) {
+            return minTtl;
+        }
+        return minTtl + (long)(Math.random() * (maxTtl - minTtl + 1));
+    }
+
+    public void setWithLogicalExpire(String key, Object value, Long minTime, Long maxTime, TimeUnit unit) {
         //设置逻辑过期
         RedisData redisData = new RedisData();
         redisData.setData(value);
-        redisData.setExpireTime(LocalDateTime.now().plusSeconds(unit.toSeconds(time)));
+        long randomExpireSeconds = randomTTL(minTime, maxTime);
+        redisData.setExpireTime(LocalDateTime.now().plusSeconds(randomExpireSeconds));
 
         stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(redisData));
     }
@@ -46,7 +69,8 @@ public class CacheClient {
      * @return
      */
     public <R, ID> R queryWithPassThrough(
-            String keyPrefix,ID id, Class<R> type, Function<ID, R> dbFallback, Long time, TimeUnit unit){
+            String keyPrefix, ID id, Class<R> type, Function<ID, R> dbFallback, Long time, TimeUnit unit,
+            String bloomFilterName) {
         String key = keyPrefix + id;
 
         String json = stringRedisTemplate.opsForValue().get(key);
@@ -55,22 +79,28 @@ public class CacheClient {
             return JSONUtil.toBean(json, type);
         }
 
-        if (json != null){
+        if (json != null) {
+            // 缓存命中空值，直接返回 null
             return null;
         }
 
-        R r = dbFallback.apply(id);
-        if (r==null) {
+        // 布隆过滤器拦截：如果 key 可能不存在于任何数据源中，则无需调用 DB
+        if (bloomFilterName != null) {
+            if (!BloomFilterUtils.mightContain(bloomFilterName, key)) {
+                return null;
+            }
+        }
 
-            //将空值写入redis
-            stringRedisTemplate.opsForValue().set(key,"", CACHE_NULL_TTL, TimeUnit.MINUTES);
+        // 正式查数据库
+        R r = dbFallback.apply(id);
+        if (r == null) {
+            // 缓存穿透优化：缓存空值以防后续重复穿透查询
+            stringRedisTemplate.opsForValue().set(key, "", CACHE_NULL_TTL, TimeUnit.MINUTES);
             return null;
         }
 
         this.set(key, r, time, unit);
-
         return r;
-
     }
     private static final ExecutorService CACHE_REBUILD_EXECUTOR = Executors.newFixedThreadPool(10);
     /**
@@ -79,12 +109,17 @@ public class CacheClient {
      * @return
      */
     public <R, ID> R queryWithLogicalExpire(
-            String keyPrefix, ID id, Class<R> type, Function<ID, R> dbFallback, Long time, TimeUnit unit){
-        String key = keyPrefix  + id;
+            String keyPrefix, ID id, Class<R> type, Function<ID, R> dbFallback, Long time, TimeUnit unit,
+            String bloomFilterName) {
+        String key = keyPrefix + id;
 
         String json = stringRedisTemplate.opsForValue().get(key);
 
         if (StrUtil.isBlank(json)) {
+            // 布隆过滤器拦截：如果 key 可能不存在，则无需执行逻辑过期查询
+            if (bloomFilterName != null && !BloomFilterUtils.mightContain(bloomFilterName, key)) {
+                return null;
+            }
             return null;
         }
 
@@ -105,7 +140,7 @@ public class CacheClient {
             CACHE_REBUILD_EXECUTOR.submit(() -> {
                 try {
                     R r1 = dbFallback.apply(id);
-                    this.setWithLogicalExpire(key, r1, time, unit);
+                    this.setWithLogicalExpire(key, r1, time - 3, time + 3, unit);
 
                 } catch (Exception e) {
                     throw new RuntimeException(e);
@@ -116,7 +151,6 @@ public class CacheClient {
         }
 
         return r;
-
     }
 
     /**
