@@ -26,8 +26,7 @@ jobs:
         ports:
           - 6379:6379
         options: >-
-          --requirepass ci-test-password
-          --health-cmd="redis-cli -a ci-test-password ping 2>/dev/null"
+          --health-cmd="redis-cli ping 2>/dev/null"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
@@ -57,5 +56,4 @@ jobs:
           SPRING_DATASOURCE_PASSWORD: ci-test-password
           SPRING_REDIS_HOST: 127.0.0.1
           SPRING_REDIS_PORT: "6379"
-          SPRING_REDIS_PASSWORD: ci-test-password
         run: ./mvnw test

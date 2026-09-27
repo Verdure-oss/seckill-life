@@ -62,7 +62,7 @@
   2. 导入 `src/main/resources/db/hmdp.sql` 初始化 `hmdp` 库（含种子数据）
   3. 用环境变量注入 `SPRING_DATASOURCE_*` / `SPRING_REDIS_*` 连接 CI 的服务容器（CI 上无 `application-local.yaml`）
   4. 运行 `./mvnw test`
-- **CI 上 Redis/MySQL 密码统一为 `ci-test-password`**，仅存在于 CI 环境变量中，无真实凭据泄露。
+- **CI 环境**:MySQL 服务容器设密码 `ci-test-password`；Redis 服务容器**无密码**。连接凭据通过 CI 环境变量注入，不入库、无真实凭据泄露。
 - 本地无 `application-local.yaml` 时，可用等价环境变量启动测试（已被验证可行）。
 
 ## 已知问题（技术债）
