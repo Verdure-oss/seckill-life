@@ -1,5 +1,25 @@
 # AGENTS.md
 
+## 项目概览
+
+基于 Spring Boot 的高并发秒杀平台（黑马点评实战项目），核心业务为：店铺信息查询与缓存、优惠券秒杀、探店笔记（点赞/Feed流）、用户关注、附近店铺（GEO）、用户签到。
+
+- **技术栈**：Spring Boot 2.3.12 / MyBatis-Plus 3.4.3 / Redis（Lettuce）/ Redisson 3.13.6 / Hutool 5.7 / MySQL 5.x
+- **JDK**：8+（本机开发使用 JDK 21 也可编译运行）
+- **Redis 承担的角色**：登录态、缓存、分布式锁、全局 ID 序列、GEO、BitMap 签到、ZSet 点赞/Feed 流、Stream 秒杀消息队列
+
+## 环境与运行
+
+- **前置依赖**：本地 MySQL（数据库 `hmdp`，初始化脚本见 `src/main/resources/db/hmdp.sql`）与 Redis。
+- **配置体系**：
+  - `application.yaml` —— 无凭据基础配置，激活 `local` profile；**随代码提交**。
+  - `application-local.yaml` —— 含真实凭据（数据库/Redis 密码），已被 `.gitignore` 忽略，**禁止提交**。新环境复制 `application-example.yaml` 为 `application-local.yaml` 并填入本地密码。
+  - `application-example.yaml` —— 无凭据模板，随代码提交。
+- **构建与测试**：使用 Maven Wrapper，无需本机安装 Maven。
+  - Windows：`mvnw.cmd test`
+  - macOS/Linux：`./mvnw test`
+  - 首次执行会联网下载 Maven 与依赖。
+
 ## 注意事项
 
 - 每次改动完成后，都必须创建一个对应的 Git commit，以便后续追踪和回滚。
@@ -20,7 +40,6 @@
   - `perf:` 性能优化
 - subject 用英文，简介（≤50 字符），动词原形开头，不要用句号结尾。
 - 一个 commit 只做一件事：不要把互不相关的改动混在一起。
-- 注：现有历史中个别 `feat:`/`docs:` 描述较长，可接受，但新提交遵循以上规则。
 
 ## 测试策略
 
@@ -33,3 +52,20 @@
 
 - 带凭据的配置（`application-local.yaml` 等）禁止提交，已加入 `.gitignore`。
 - 提交前检查是否意外引入了密钥；如发现，须先清理历史再推送。
+
+## 已知问题（技术债）
+
+> 记录已识别、尚未修复的问题。修复时应在本节同步更新状态，并补充对应测试。
+
+- **秒杀 Lua 脚本路径错误**：
+  - `VoucherOrderServiceImpl` 的 `SECKILL_SCRIPT` 加载 `lock.lua`，但 `src/main/resources` 下不存在该文件（只有 `seckill.lua`、`unlock.lua`），运行时秒杀接口会抛异常。
+  - `SimpleRedisLock` 的 `UNLOCK_SCRIPT` 同样错误加载 `lock.lua`。
+  - 正确路径：秒杀脚本应对应 `seckill.lua`，解锁脚本应对应 `unlock.lua`。
+- **秒杀库存 key 不一致**：
+  - `src/main/resources/seckill.lua` 中 key 为 `seckill:stock`（无冒号）、`seckill:order`（无冒号）。
+  - Java 端 `RedisConstants.SECKILL_STOCK_KEY = "seckill:stock:"`（有冒号）。
+  - Lua 判断库存与 Java 预热/查询库存落在不同 key，库存判断无法生效。
+- **秒杀消息消费者线程未启动**：
+  - `VoucherOrderServiceImpl.init()` 为 `private` 且无 `@PostConstruct`，未在任何地方被调用。
+  - Lua 已向 Stream `stream.orders` 投递订单，但后台消费者未启动，订单不会落库。
+- **`unlock.lua` 变量名拼写错误**：`src/main/resources/unlock.lua` 中写的是 `KEYs`，Redis Lua 全局应为 `KEYS`（大写）。不修正会在解锁时抛 Lua 运行时错误。
