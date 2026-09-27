@@ -31,3 +31,7 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Local study notes & artifacts ###
+Redis实战篇.md
+Redis实战篇.assets/
