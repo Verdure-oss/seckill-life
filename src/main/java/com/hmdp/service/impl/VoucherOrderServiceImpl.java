@@ -24,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
 import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
@@ -32,6 +33,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * <p>
@@ -78,6 +80,19 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         SECKILL_ORDER_EXECUTOR.submit(new VoucherOrderHandler());
     }
 
+    @PreDestroy
+    private void destroy(){
+        // 优雅关闭消费者线程：打断阻塞读并等待退出，避免销毁连接后消费者仍访问 Redis 报错
+        SECKILL_ORDER_EXECUTOR.shutdownNow();
+        try {
+            if (!SECKILL_ORDER_EXECUTOR.awaitTermination(3, TimeUnit.SECONDS)) {
+                log.warn("秒杀订单消费者线程未在 3 秒内退出");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
     /**
      * 幂等地创建秒杀订单 Stream 及其消费组。
      * XGROUP CREATE 在组已存在时会抛 BUSYGROUP，这里捕获并忽略。
@@ -95,6 +110,11 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         @Override
         public void run() {
             while (true){
+                // 线程被中断（如应用关闭）时干净退出，不再继续消费
+                if (Thread.currentThread().isInterrupted()) {
+                    log.info("秒杀订单消费者线程已停止");
+                    return;
+                }
                 try {
                     //1. 获取消息队列中的订单信息
                     List<MapRecord<String, Object, Object>> list = stringRedisTemplate.opsForStream().read(
@@ -118,6 +138,11 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                     handleVoucherOrder(voucherOrder);
                     stringRedisTemplate.opsForStream().acknowledge(queueName, "g1", record.getId());//告诉 Redis，这条订单我已经成功存入数据库了，你可以把这笔记录从我的“待处理清单”里划掉了。
                 } catch (Exception e) {
+                    // 线程被中断（如应用关闭）时，阻塞读抛运行时异常，这里检查中断标志后干净退出
+                    if (Thread.currentThread().isInterrupted()) {
+                        log.info("秒杀订单消费者线程已停止");
+                        return;
+                    }
                     log.error("处理订单异常", e);
                     handlePendingList();
                 }
@@ -128,6 +153,10 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
          */
         private void handlePendingList() {
             while (true){
+                // 线程被中断时不再处理 pending，避免接管关闭流程
+                if (Thread.currentThread().isInterrupted()) {
+                    return;
+                }
                 try {
                     //1. 获取pending列表中的订单信息
                     List<MapRecord<String, Object, Object>> list = stringRedisTemplate.opsForStream().read(
@@ -151,11 +180,15 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                     handleVoucherOrder(voucherOrder);
                     stringRedisTemplate.opsForStream().acknowledge(queueName, "g1", record.getId());
                 } catch (Exception e) {
+                    if (Thread.currentThread().isInterrupted()) {
+                        return;
+                    }
                     log.error("处理pending列表订单异常", e);
                     try {
                         Thread.sleep(20);
                     } catch (InterruptedException ex) {
-                        throw new RuntimeException(ex);
+                        Thread.currentThread().interrupt();
+                        return;
                     }
                 }
             }

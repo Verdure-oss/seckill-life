@@ -10,6 +10,7 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.util.StreamUtils;
 
 import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
@@ -85,6 +86,18 @@ class SeckillScriptTest {
 
         assertThat(hasPostConstructOnInit)
                 .as("VoucherOrderServiceImpl.init() 应标注 @PostConstruct")
+                .isTrue();
+    }
+
+    /** 6. 消费者线程应有 @PreDestroy 优雅关闭钩子（避免应用关闭时残留报错） */
+    @Test
+    void consumerThread_shouldHaveGracefulShutdown() throws Exception {
+        boolean hasPreDestroyOnDestroy = Arrays.stream(VoucherOrderServiceImpl.class.getDeclaredMethods())
+                .filter(m -> m.getName().equals("destroy"))
+                .anyMatch(m -> m.isAnnotationPresent(PreDestroy.class));
+
+        assertThat(hasPreDestroyOnDestroy)
+                .as("VoucherOrderServiceImpl 应有 @PreDestroy destroy() 优雅关闭消费者线程")
                 .isTrue();
     }
 }

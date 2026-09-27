@@ -77,5 +77,4 @@
 - ✅ **秒杀消息消费者线程未启动**：
   - `VoucherOrderServiceImpl.init()` 原为 `private` 且无 `@PostConstruct`，已加上注解并补充 `ensureConsumerGroup()` 幂等创建 Stream/消费组，消费者线程（daemon）启动后才能真正消费 `stream.orders`。
 - ✅ **`unlock.lua` 变量名拼写错误**：`KEYs` 已改为 `KEYS`（大写）。
-
-> ⚠️ 尚有已知限制：消费者线程在测试进程退出时可能打印一次 `Connection closed`（daemon 线程随应用关闭），无害。
+- ✅ **消费者线程优雅关闭**：新增 `@PreDestroy destroy()` 关闭 executor 并中断阻塞读；消费者 `run()`/`handlePendingList()` 检查中断标志后干净退出，应用关闭时不再残留 `Connection closed` 报错。
