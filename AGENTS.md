@@ -38,6 +38,7 @@
   - `refactor:` 重构，不改变外部行为
   - `test:` 增补/修改测试
   - `perf:` 性能优化
+  - `ci:` CI/CD 配置（GitHub Actions 等）
 - subject 用英文，简介（≤50 字符），动词原形开头，不要用句号结尾。
 - 一个 commit 只做一件事：不要把互不相关的改动混在一起。
 
@@ -52,6 +53,17 @@
 
 - 带凭据的配置（`application-local.yaml` 等）禁止提交，已加入 `.gitignore`。
 - 提交前检查是否意外引入了密钥；如发现，须先清理历史再推送。
+
+## CI（GitHub Actions）
+
+- 定义在 `.github/workflows/ci.yml`，在 **push 到 master 分支**时自动执行；也可通过 `workflow_dispatch` 手动触发。
+- CI 内置 MySQL 5.7 + Redis 6 服务容器，执行流程：
+  1. 检出代码、安装 JDK 8（temurin）、Maven 依赖缓存
+  2. 导入 `src/main/resources/db/hmdp.sql` 初始化 `hmdp` 库（含种子数据）
+  3. 用环境变量注入 `SPRING_DATASOURCE_*` / `SPRING_REDIS_*` 连接 CI 的服务容器（CI 上无 `application-local.yaml`）
+  4. 运行 `./mvnw test`
+- **CI 上 Redis/MySQL 密码统一为 `ci-test-password`**，仅存在于 CI 环境变量中，无真实凭据泄露。
+- 本地无 `application-local.yaml` 时，可用等价环境变量启动测试（已被验证可行）。
 
 ## 已知问题（技术债）
 
