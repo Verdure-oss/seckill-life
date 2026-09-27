@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
+import javax.annotation.PostConstruct;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
@@ -58,16 +59,35 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     private static final DefaultRedisScript<Long> SECKILL_SCRIPT;
     static {
         SECKILL_SCRIPT = new DefaultRedisScript<>();
-        SECKILL_SCRIPT.setLocation(new ClassPathResource("lock.lua"));
+        SECKILL_SCRIPT.setLocation(new ClassPathResource("seckill.lua"));
         SECKILL_SCRIPT.setResultType(Long.class);
 
     }
 
 
-    private static final ExecutorService SECKILL_ORDER_EXECUTOR = Executors.newSingleThreadExecutor();
+    private static final ExecutorService SECKILL_ORDER_EXECUTOR = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "seckill-order-consumer");
+        t.setDaemon(true);
+        return t;
+    });
 
+    @PostConstruct
     private void init(){
+        // 确保 Stream 与消费组存在（幂等：已存在时忽略异常），否则消费者 XREADGROUP 会一直 NOGROUP 报错
+        ensureConsumerGroup();
         SECKILL_ORDER_EXECUTOR.submit(new VoucherOrderHandler());
+    }
+
+    /**
+     * 幂等地创建秒杀订单 Stream 及其消费组。
+     * XGROUP CREATE 在组已存在时会抛 BUSYGROUP，这里捕获并忽略。
+     */
+    private void ensureConsumerGroup() {
+        try {
+            stringRedisTemplate.opsForStream().createGroup("stream.orders", "g1");
+        } catch (Exception e) {
+            log.debug("秒杀订单消费组已存在或创建失败（忽略）: {}", e.getMessage());
+        }
     }
     private class VoucherOrderHandler implements Runnable{
 

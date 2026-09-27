@@ -65,19 +65,17 @@
 - **CI 环境**:MySQL 服务容器设密码 `ci-test-password`；Redis 服务容器**无密码**。连接凭据通过 CI 环境变量注入，不入库、无真实凭据泄露。
 - 本地无 `application-local.yaml` 时，可用等价环境变量启动测试（已被验证可行）。
 
-## 已知问题（技术债）
+## 已修复问题记录
 
-> 记录已识别、尚未修复的问题。修复时应在本节同步更新状态，并补充对应测试。
+> 以下秒杀链路问题已在秒杀修复工作中解决（见提交 `SeckillScriptTest` 回归测试）。保留此记录供追溯，避免将来重新引入。
 
-- **秒杀 Lua 脚本路径错误**：
-  - `VoucherOrderServiceImpl` 的 `SECKILL_SCRIPT` 加载 `lock.lua`，但 `src/main/resources` 下不存在该文件（只有 `seckill.lua`、`unlock.lua`），运行时秒杀接口会抛异常。
-  - `SimpleRedisLock` 的 `UNLOCK_SCRIPT` 同样错误加载 `lock.lua`。
-  - 正确路径：秒杀脚本应对应 `seckill.lua`，解锁脚本应对应 `unlock.lua`。
-- **秒杀库存 key 不一致**：
-  - `src/main/resources/seckill.lua` 中 key 为 `seckill:stock`（无冒号）、`seckill:order`（无冒号）。
-  - Java 端 `RedisConstants.SECKILL_STOCK_KEY = "seckill:stock:"`（有冒号）。
-  - Lua 判断库存与 Java 预热/查询库存落在不同 key，库存判断无法生效。
-- **秒杀消息消费者线程未启动**：
-  - `VoucherOrderServiceImpl.init()` 为 `private` 且无 `@PostConstruct`，未在任何地方被调用。
-  - Lua 已向 Stream `stream.orders` 投递订单，但后台消费者未启动，订单不会落库。
-- **`unlock.lua` 变量名拼写错误**：`src/main/resources/unlock.lua` 中写的是 `KEYs`，Redis Lua 全局应为 `KEYS`（大写）。不修正会在解锁时抛 Lua 运行时错误。
+- ✅ **秒杀 Lua 脚本路径错误**：
+  - `VoucherOrderServiceImpl.SECKILL_SCRIPT` 原错误加载不存在的 `lock.lua`，已改为 `seckill.lua`。
+  - `SimpleRedisLock.UNLOCK_SCRIPT` 原错误加载 `lock.lua`，已改为 `unlock.lua`。
+- ✅ **秒杀库存 key 不一致**：
+  - `seckill.lua` 中 key 原为 `seckill:stock`/`seckill:order`（无冒号），已改为带冒号，与 Java `RedisConstants.SECKILL_STOCK_KEY` 一致。
+- ✅ **秒杀消息消费者线程未启动**：
+  - `VoucherOrderServiceImpl.init()` 原为 `private` 且无 `@PostConstruct`，已加上注解并补充 `ensureConsumerGroup()` 幂等创建 Stream/消费组，消费者线程（daemon）启动后才能真正消费 `stream.orders`。
+- ✅ **`unlock.lua` 变量名拼写错误**：`KEYs` 已改为 `KEYS`（大写）。
+
+> ⚠️ 尚有已知限制：消费者线程在测试进程退出时可能打印一次 `Connection closed`（daemon 线程随应用关闭），无害。
