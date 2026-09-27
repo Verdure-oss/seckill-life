@@ -55,6 +55,7 @@ jobs:
 
       - name: Run tests
         env:
+          SPRING_DATASOURCE_DRIVER_CLASS_NAME: com.mysql.jdbc.Driver
           SPRING_DATASOURCE_URL: jdbc:mysql://127.0.0.1:3306/hmdp?useSSL=false&serverTimezone=UTC
           SPRING_DATASOURCE_USERNAME: root
           SPRING_DATASOURCE_PASSWORD: ci-test-password
