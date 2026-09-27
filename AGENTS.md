@@ -65,16 +65,6 @@
 - **CI 环境**:MySQL 服务容器设密码 `ci-test-password`；Redis 服务容器**无密码**。连接凭据通过 CI 环境变量注入，不入库、无真实凭据泄露。
 - 本地无 `application-local.yaml` 时，可用等价环境变量启动测试（已被验证可行）。
 
-## 已修复问题记录
+## 防回归提醒
 
-> 以下秒杀链路问题已在秒杀修复工作中解决（见提交 `SeckillScriptTest` 回归测试）。保留此记录供追溯，避免将来重新引入。
-
-- ✅ **秒杀 Lua 脚本路径错误**：
-  - `VoucherOrderServiceImpl.SECKILL_SCRIPT` 原错误加载不存在的 `lock.lua`，已改为 `seckill.lua`。
-  - `SimpleRedisLock.UNLOCK_SCRIPT` 原错误加载 `lock.lua`，已改为 `unlock.lua`。
-- ✅ **秒杀库存 key 不一致**：
-  - `seckill.lua` 中 key 原为 `seckill:stock`/`seckill:order`（无冒号），已改为带冒号，与 Java `RedisConstants.SECKILL_STOCK_KEY` 一致。
-- ✅ **秒杀消息消费者线程未启动**：
-  - `VoucherOrderServiceImpl.init()` 原为 `private` 且无 `@PostConstruct`，已加上注解并补充 `ensureConsumerGroup()` 幂等创建 Stream/消费组，消费者线程（daemon）启动后才能真正消费 `stream.orders`。
-- ✅ **`unlock.lua` 变量名拼写错误**：`KEYs` 已改为 `KEYS`（大写）。
-- ✅ **消费者线程优雅关闭**：新增 `@PreDestroy destroy()` 关闭 executor 并中断阻塞读；消费者 `run()`/`handlePendingList()` 检查中断标志后干净退出，应用关闭时不再残留 `Connection closed` 报错。
+> 秒杀链路历史上修过多轮问题（Lua 脚本引用路径、库存 key 前缀、消费者线程启动与优雅关闭、`KEYs`→`KEYS` 拼写），均已有 `SeckillScriptTest` 回归测试覆盖。改动秒杀相关代码时，务必保持这些测试通过，避免重新引入。
