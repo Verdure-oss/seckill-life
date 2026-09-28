@@ -7,21 +7,20 @@ spring:
     active: local
   jackson:
     default-property-inclusion: non_null # JSON处理时忽略非空字段
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
 mybatis-plus:
   type-aliases-package: com.hmdp.entity # 别名扫描包
 logging:
   level:
     com.hmdp: debug
 
-spring:
-  rabbitmq:
-    host: localhost
-    port: 5672
-    username: guest
-    password: guest
-
 ai:
   openai:
+    enabled: false  # Set to true in production to enable AI features
     api-key: ${OPENAI_API_KEY:}
     model: gpt-3.5-turbo
     base-url: https://api.openai.com/v1

@@ -10,11 +10,14 @@ import org.springframework.web.bind.annotation.RestController;
 import javax.annotation.Resource;
 import java.util.Map;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+
 /**
  * AI 智能客服控制器
  */
 @RestController
 @RequestMapping("/ai")
+@ConditionalOnProperty(name = "ai.openai.enabled", havingValue = "true")
 public class AIController {
 
     @Resource
