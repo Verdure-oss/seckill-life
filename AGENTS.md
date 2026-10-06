@@ -2,7 +2,7 @@
 
 ## 项目概览
 
-黑马点评实战项目（`hm-dianping`）：基于 Spring Boot 的高并发本地生活服务平台。核心业务：店铺信息查询与多级缓存、优惠券秒杀、探店笔记（点赞/Feed 流）、用户关注、附近店铺（GEO）、用户签到，并集成 LangChain4j AI 助手（店铺查询/预约工具）。
+本地生活秒杀交易平台（`seckill-life`，原 `hm-dianping`）：基于 Spring Boot 的高并发本地生活**到店秒杀交易**平台。核心业务：店铺信息查询与多级缓存、优惠券秒杀、探店笔记（点赞/Feed 流）、用户关注、附近店铺（GEO）、用户签到，并集成 LangChain4j AI 助手（店铺查询/预约工具）。
 
 - **技术栈**：Spring Boot 2.7.18 / Java 17 / MyBatis-Plus 3.4.3 / Redis（Lettuce 6.1）/ Redisson 3.13.6 / RabbitMQ / Caffeine / Guava(依赖内) / Hutool 5.7 / LangChain4j 1.0.0 / MySQL 5.x
 - **Redis 承担的角色**：登录态（验证码/Token）、多级缓存（含 Redisson 布隆过滤器防穿透）、分布式锁（Redisson）、全局 ID 序列、GEO 附近店铺、BitMap 签到、ZSet 点赞/Feed 流。

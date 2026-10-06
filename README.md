@@ -1,7 +1,7 @@
-# hm-dianping · 黑马点评
+# 本地生活秒杀交易平台（seckill-life）
 
-> 高并发本地生活服务平台（黑马点评实战项目增强版），基于 **Spring Boot 2.7 / Java 17 / Redis / RabbitMQ**，
-> 聚焦高 QPS 场景下的缓存架构、秒杀一致性、最终一致性设计与 AI 工具调用。
+> 面向本地生活服务的高并发到店秒杀交易平台，基于 **Spring Boot 2.7 / Java 17 / Redis / RabbitMQ**，
+> 聚焦高 QPS 场景下的秒杀一致性、缓存架构与最终一致性，并覆盖 GEO 附近门店、Feed 流、AI 助手等社交到店场景。
 
 ---
 
@@ -239,6 +239,7 @@ mvnw.cmd spring-boot:run
 
 | Commit | 内容 |
 |---|---|
+| 本次 | 对外更名「本地生活秒杀交易平台」（seckill-life） |
 | `83b7c59` | 文档整理（AGENTS.md / README） |
 | `5369e46` | 上传目录可配置化，清理过时注释与误标测试 |
 | `314b5c3` | 商铺分类缓存 key 规范命名 + TTL |
