@@ -22,6 +22,9 @@ spring:
           multiplier: 2.0
           max-interval: 5000
         default-requeue-rejected: false
+bloom:
+  warmup:
+    enabled: true # 服务启动时预热布隆过滤器
 mybatis-plus:
   type-aliases-package: com.hmdp.entity # 别名扫描包
 logging:

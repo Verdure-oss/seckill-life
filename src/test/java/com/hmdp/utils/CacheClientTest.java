@@ -40,7 +40,8 @@ class CacheClientTest {
         when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
 
         localCache = new LocalCache<>();
-        cacheClient = new CacheClient(stringRedisTemplate, localCache);
+        BloomFilterUtils bloomFilterUtils = mock(BloomFilterUtils.class);
+        cacheClient = new CacheClient(stringRedisTemplate, localCache, bloomFilterUtils);
     }
 
     private Shop buildShop(Long id) {

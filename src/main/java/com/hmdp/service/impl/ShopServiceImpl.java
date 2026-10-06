@@ -9,6 +9,7 @@ import com.hmdp.entity.Shop;
 import com.hmdp.mapper.ShopMapper;
 import com.hmdp.service.IShopService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.utils.BloomFilterUtils;
 import com.hmdp.utils.CacheClient;
 import com.hmdp.utils.RedisData;
 import com.hmdp.utils.SystemConstants;
@@ -52,6 +53,18 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
 
     @Resource
     private CacheClient cacheClient;
+
+    @Resource
+    private BloomFilterUtils bloomFilterUtils;
+
+    @Override
+    @Transactional
+    public Result saveShop(Shop shop) {
+        save(shop);
+        // 新增店铺后写入布隆过滤器，避免缓存查询被前置拦截误判为不存在
+        bloomFilterUtils.add(BLOOM_FILTER_SHOP, CACHE_SHOP_KEY + shop.getId());
+        return Result.ok(shop.getId());
+    }
 
     @Override
     public Result queryById(Long id) {

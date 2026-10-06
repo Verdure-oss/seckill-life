@@ -1,78 +1,60 @@
 package com.hmdp.utils;
 
-import com.google.common.hash.BloomFilter;
-import com.google.common.hash.Funnels;
+import org.redisson.api.RBloomFilter;
+import org.redisson.api.RedissonClient;
 import org.springframework.stereotype.Component;
 
-import javax.annotation.PostConstruct;
-import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Bloom Filter Utility
+ * 基于 Redis（Redisson）的分布式布隆过滤器工具，用于缓存穿透前置拦截。
  * <p>
- * Provides fast negative checks to prevent cache penetration.
- * Supports multiple named filters stored in a concurrent map.
+ * 相比 JVM 内存版（Guava）：多实例共享同一份过滤结果、重启不丢失（位图持久化在 Redis 中），
+ * 但首次使用前需要预热，把已存在的数据（店铺/优惠券 id）批量写入过滤器。
  * </p>
  */
 @Component
 public class BloomFilterUtils {
 
-    private static final ConcurrentHashMap<String, BloomFilter<String>> filters = new ConcurrentHashMap<>();
+    /** 预估插入数量 */
+    private static final long EXPECTED_INSERTIONS = 1_000_000L;
 
-    /**
-     * Expected number of insertions.
-     * A higher value increases memory usage but reduces false positive rate.
-     */
-    private static final int EXPECTED_INSERTIONS = 1000000;
-
-    /**
-     * Desired false positive probability.
-     * Lower values increase memory usage.
-     */
+    /** 允许的误判率 */
     private static final double FPP = 0.001;
 
-    /**
-     * Initialize some commonly used bloom filters.
-     */
-    @PostConstruct
-    private void init() {
-        // Shop id filter
-        filters.put(RedisConstants.BLOOM_FILTER_SHOP, createFilter());
-        // Voucher id filter
-        filters.put(RedisConstants.BLOOM_FILTER_VOUCHER, createFilter());
+    private final RedissonClient redissonClient;
+    private final Map<String, RBloomFilter<String>> filters = new ConcurrentHashMap<>();
+
+    public BloomFilterUtils(RedissonClient redissonClient) {
+        this.redissonClient = redissonClient;
     }
 
     /**
-     * Create a new Guava BloomFilter instance.
+     * 获取指定名称的布隆过滤器，首次访问时惰性初始化。
      */
-    private static BloomFilter<String> createFilter() {
-        return BloomFilter.create(
-                Funnels.stringFunnel(StandardCharsets.UTF_8),
-                EXPECTED_INSERTIONS,
-                FPP
-        );
+    public RBloomFilter<String> getFilter(String name) {
+        return filters.computeIfAbsent(name, n -> {
+            RBloomFilter<String> filter = redissonClient.getBloomFilter(n);
+            // tryInit 幂等：已存在的过滤器配置不会被重建
+            filter.tryInit(EXPECTED_INSERTIONS, FPP);
+            return filter;
+        });
     }
 
     /**
-     * Get the bloom filter by name. If not present, create one on demand.
+     * 向指定名称的布隆过滤器添加一个 key。
      */
-    public static BloomFilter<String> getFilter(String name) {
-        return filters.computeIfAbsent(name, k -> createFilter());
+    public void add(String name, String key) {
+        getFilter(name).add(key);
     }
 
     /**
-     * Add a key to the named filter.
+     * 判断 key 是否可能存在。
+     *
+     * @return true 表示可能存在；false 表示一定不存在
      */
-    public static void add(String name, String key) {
-        getFilter(name).put(key);
-    }
-
-    /**
-     * Check if a key might be contained in the filter.
-     * @return true if it may exist; false definitely does not exist.
-     */
-    public static boolean mightContain(String name, String key) {
-        return getFilter(name).mightContain(key);
+    public boolean mightContain(String name, String key) {
+        return getFilter(name).contains(key);
     }
 }

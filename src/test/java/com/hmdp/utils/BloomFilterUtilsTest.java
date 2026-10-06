@@ -1,58 +1,72 @@
 package com.hmdp.utils;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.redisson.api.RBloomFilter;
+import org.redisson.api.RedissonClient;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
- * 单元测试：BloomFilterUtils 提供的缓存穿透防护能力
+ * 单元测试：BloomFilterUtils 委托 Redisson 的 RBloomFilter（分布式布隆过滤器）。
+ * 使用 mock 隔离真实 Redis。
  */
 class BloomFilterUtilsTest {
 
-    /**
-     * 当 key 被 add 后，mightContain 应返回 true。
-     * （BloomFilter 是「可能存在」判断，不能百分之百保证正确）
-     */
-    @Test
-    void mightContain_shouldReturnTrue_afterAdd() {
-        String filterName = RedisConstants.BLOOM_FILTER_SHOP;
-        String key = "cache:shop:999";
+    private RedissonClient redissonClient;
+    private RBloomFilter<String> shopFilter;
+    private RBloomFilter<String> voucherFilter;
+    private BloomFilterUtils bloomFilterUtils;
 
-        BloomFilterUtils.add(filterName, key);
-
-        boolean result = BloomFilterUtils.mightContain(filterName, key);
-
-        assertThat(result).isTrue();
+    @BeforeEach
+    @SuppressWarnings("unchecked")
+    void setUp() {
+        redissonClient = mock(RedissonClient.class);
+        shopFilter = mock(RBloomFilter.class);
+        voucherFilter = mock(RBloomFilter.class);
+        doReturn(shopFilter).when(redissonClient).getBloomFilter(RedisConstants.BLOOM_FILTER_SHOP);
+        doReturn(voucherFilter).when(redissonClient).getBloomFilter(RedisConstants.BLOOM_FILTER_VOUCHER);
+        bloomFilterUtils = new BloomFilterUtils(redissonClient);
     }
 
-    /**
-     * 未被 add 的 key 应极大概率返回 false。
-     * 若偶尔返回 true，说明是误判（false positive），概率极低。
-     */
+    /** mightContain 应委托给 Redis 布隆过滤器 */
+    @Test
+    void mightContain_shouldDelegateToRedisFilter() {
+        when(shopFilter.contains("cache:shop:1")).thenReturn(true);
+
+        assertThat(bloomFilterUtils.mightContain(RedisConstants.BLOOM_FILTER_SHOP, "cache:shop:1")).isTrue();
+        verify(shopFilter).contains("cache:shop:1");
+    }
+
+    /** 未加入的 key 应返回 false */
     @Test
     void mightContain_shouldReturnFalse_forUnknownKey() {
-        String filterName = RedisConstants.BLOOM_FILTER_SHOP;
-        String unknownKey = "cache:shop:nonexistent_" + System.nanoTime();
+        when(shopFilter.contains(anyString())).thenReturn(false);
 
-        // 确保没有添加过这个 key
-        boolean result = BloomFilterUtils.mightContain(filterName, unknownKey);
-
-        // 理论上应为 false，BloomFilter 允许少量误判
-        assertThat(result).isFalse();
+        assertThat(bloomFilterUtils.mightContain(
+                RedisConstants.BLOOM_FILTER_SHOP, "cache:shop:nonexistent")).isFalse();
     }
 
-    /**
-     * 确保不同 filterName 的过滤器相互独立。
-     */
+    /** add 应委托给 Redis 布隆过滤器 */
+    @Test
+    void add_shouldDelegateToRedisFilter() {
+        bloomFilterUtils.add(RedisConstants.BLOOM_FILTER_SHOP, "cache:shop:9");
+
+        verify(shopFilter).add("cache:shop:9");
+    }
+
+    /** 不同名称的过滤器相互独立 */
     @Test
     void filtersShouldBeIsolated_perName() {
-        BloomFilterUtils.add(RedisConstants.BLOOM_FILTER_SHOP, "cache:shop:1");
-        BloomFilterUtils.add(RedisConstants.BLOOM_FILTER_VOUCHER, "cache:voucher:1");
-
-        boolean shopExists = BloomFilterUtils.mightContain(RedisConstants.BLOOM_FILTER_SHOP, "cache:shop:1");
-        boolean voucherExists = BloomFilterUtils.mightContain(RedisConstants.BLOOM_FILTER_VOUCHER, "cache:voucher:1");
-
-        assertThat(shopExists).isTrue();
-        assertThat(voucherExists).isTrue();
+        when(shopFilter.contains("cache:shop:1")).thenReturn(true);
+        // voucher 过滤器未被访问时，不应返回 shop 的判定结果
+        assertThat(bloomFilterUtils.mightContain(RedisConstants.BLOOM_FILTER_SHOP, "cache:shop:1")).isTrue();
+        verify(voucherFilter, never()).contains(anyString());
     }
 }

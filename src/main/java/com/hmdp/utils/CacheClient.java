@@ -23,10 +23,12 @@ public class CacheClient {
 
     private final StringRedisTemplate stringRedisTemplate;
     private final LocalCache<String, String> localCache;
+    private final BloomFilterUtils bloomFilterUtils;
 
-    public CacheClient(StringRedisTemplate stringRedisTemplate, LocalCache<String, String> localCache) {
+    public CacheClient(StringRedisTemplate stringRedisTemplate, LocalCache<String, String> localCache, BloomFilterUtils bloomFilterUtils) {
         this.stringRedisTemplate = stringRedisTemplate;
         this.localCache = localCache;
+        this.bloomFilterUtils = bloomFilterUtils;
     }
 
     /**
@@ -88,7 +90,7 @@ public class CacheClient {
 
         // 布隆过滤器拦截：如果 key 可能不存在于任何数据源中，则无需调用 DB
         if (bloomFilterName != null) {
-            if (!BloomFilterUtils.mightContain(bloomFilterName, key)) {
+            if (!bloomFilterUtils.mightContain(bloomFilterName, key)) {
                 return null;
             }
         }
@@ -119,7 +121,7 @@ public class CacheClient {
 
         if (StrUtil.isBlank(json)) {
             // 布隆过滤器拦截：如果 key 可能不存在，则无需执行逻辑过期查询
-            if (bloomFilterName != null && !BloomFilterUtils.mightContain(bloomFilterName, key)) {
+            if (bloomFilterName != null && !bloomFilterUtils.mightContain(bloomFilterName, key)) {
                 return null;
             }
             return null;
@@ -199,7 +201,7 @@ public class CacheClient {
         }
 
         // 3. 布隆过滤器拦截
-        if (bloomFilterName != null && !BloomFilterUtils.mightContain(bloomFilterName, key)) {
+        if (bloomFilterName != null && !bloomFilterUtils.mightContain(bloomFilterName, key)) {
             log.debug("布隆过滤器拦截: {}", key);
             return null;
         }

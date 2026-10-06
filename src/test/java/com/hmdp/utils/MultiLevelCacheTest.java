@@ -25,6 +25,7 @@ class MultiLevelCacheTest {
     private ValueOperations<String, String> valueOps;
     private CacheClient cacheClient;
     private LocalCache<String, String> localCache;
+    private BloomFilterUtils bloomFilterUtils;
 
     @BeforeEach
     void setUp() {
@@ -33,7 +34,8 @@ class MultiLevelCacheTest {
         when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
 
         localCache = new LocalCache<>();
-        cacheClient = new CacheClient(stringRedisTemplate, localCache);
+        bloomFilterUtils = mock(BloomFilterUtils.class);
+        cacheClient = new CacheClient(stringRedisTemplate, localCache, bloomFilterUtils);
     }
 
     private Shop buildShop(Long id) {
@@ -88,8 +90,8 @@ class MultiLevelCacheTest {
     void queryWithMultiLevelCache_bloomFilterRejects_returnsNull() {
         // Redis 缓存未命中
         when(valueOps.get("cache:shop:99999999")).thenReturn(null);
-        // 假设 key 不在布隆过滤器中 (只有 cache:shop:1 在其中)
-        BloomFilterUtils.add(RedisConstants.BLOOM_FILTER_SHOP, "cache:shop:1");
+        // 布隆过滤器判定 key 一定不存在
+        when(bloomFilterUtils.mightContain(RedisConstants.BLOOM_FILTER_SHOP, "cache:shop:99999999")).thenReturn(false);
 
         Function<Long, Shop> dbFallback = id -> {
             throw new AssertionError("布隆过滤器拦截不应访问数据库");
@@ -110,7 +112,8 @@ class MultiLevelCacheTest {
     @Test
     void queryWithMultiLevelCache_cacheMiss_dbHit_returnsValueAndCaches() {
         when(valueOps.get("cache:shop:3")).thenReturn(null);
-        BloomFilterUtils.add(RedisConstants.BLOOM_FILTER_SHOP, "cache:shop:3");
+        // 布隆过滤器放行
+        when(bloomFilterUtils.mightContain(RedisConstants.BLOOM_FILTER_SHOP, "cache:shop:3")).thenReturn(true);
 
         Shop dbResult = buildShop(3L);
         Function<Long, Shop> dbFallback = id -> dbResult;
