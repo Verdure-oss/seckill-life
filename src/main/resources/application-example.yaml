@@ -16,3 +16,7 @@ spring:
         max-idle: 10
         min-idle: 1
         time-between-eviction-runs: 10s
+
+# 图片上传目录（Linux 环境请改为 nginx/静态资源部署路径）
+hmdp:
+  upload-dir: 'E:\software\nginx-1.18.0\html\hmdp\imgs\'

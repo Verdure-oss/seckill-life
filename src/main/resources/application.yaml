@@ -29,6 +29,8 @@ cache:
   double-delete:
     enabled: true  # 缓存一致性：延迟双删
     delay-ms: 500  # 延迟二次删除间隔
+hmdp:
+  upload-dir: 'E:\software\nginx-1.18.0\html\hmdp\imgs\' # 图片上传目录（Linux 环境改为 nginx 部署路径）
 mybatis-plus:
   type-aliases-package: com.hmdp.entity # 别名扫描包
 logging:

@@ -3,6 +3,7 @@ package com.hmdp;
 import com.hmdp.entity.Shop;
 import com.hmdp.service.impl.ShopServiceImpl;
 import com.hmdp.utils.RedisIdWorker;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.geo.Point;
@@ -60,6 +61,11 @@ class HmDianPingApplicationTests {
 //    }
 
 
+    /**
+     * 手工 GEO 预热脚本（非断言测试）：把店铺坐标批量写入 Redis，供“附近店铺”功能使用。
+     * 默认禁用，避免把数据加载动作当成测试在 CI 反复执行；需要时手动去掉 @Disabled 运行。
+     */
+    @Disabled("手工数据预热脚本，非自动化测试")
     @Test
     void loadShopData() {
         // 1.查询店铺信息
