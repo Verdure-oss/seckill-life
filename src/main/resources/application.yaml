@@ -25,6 +25,10 @@ spring:
 bloom:
   warmup:
     enabled: true # 服务启动时预热布隆过滤器
+cache:
+  double-delete:
+    enabled: true  # 缓存一致性：延迟双删
+    delay-ms: 500  # 延迟二次删除间隔
 mybatis-plus:
   type-aliases-package: com.hmdp.entity # 别名扫描包
 logging:

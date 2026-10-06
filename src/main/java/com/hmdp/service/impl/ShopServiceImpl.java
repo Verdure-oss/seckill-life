@@ -11,6 +11,7 @@ import com.hmdp.service.IShopService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.BloomFilterUtils;
 import com.hmdp.utils.CacheClient;
+import com.hmdp.utils.CacheConsistencyManager;
 import com.hmdp.utils.RedisData;
 import com.hmdp.utils.SystemConstants;
 import org.springframework.data.geo.Distance;
@@ -56,6 +57,9 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
 
     @Resource
     private BloomFilterUtils bloomFilterUtils;
+
+    @Resource
+    private CacheConsistencyManager cacheConsistencyManager;
 
     @Override
     @Transactional
@@ -262,8 +266,8 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         }
         updateById(shop);
 
-        // 清除多级缓存
-        cacheClient.evictMultiLevel(CACHE_SHOP_KEY, id);
+        // 事务提交后再清除多级缓存，并延迟二次删除兜底读-改竞态
+        cacheConsistencyManager.evictMultiLevelAfterCommit(CACHE_SHOP_KEY, id);
 
 
         return Result.ok();
