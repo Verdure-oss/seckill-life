@@ -1,14 +1,17 @@
 package com.hmdp;
 
 import com.hmdp.config.RabbitConfig;
+import com.hmdp.service.impl.VoucherOrderServiceImpl;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.Queue;
+import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.util.StreamUtils;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -55,5 +58,40 @@ class SeckillOrderConsistencyTest {
         assertThat(binding.getDestination()).isEqualTo("seckill.order.dlq");
         assertThat(binding.getExchange()).isEqualTo("seckill.order.dlx");
         assertThat(binding.getRoutingKey()).isEqualTo("seckill.order.dlq");
+    }
+
+    /** 延迟关单队列应配置 TTL 与死信路由，10 分钟未支付后自动进入关单队列 */
+    @Test
+    void seckillCloseDelayQueue_shouldHaveTTLAndRouteToCloseQueue() {
+        RabbitConfig config = new RabbitConfig();
+        Queue delayQueue = config.seckillCloseDelayQueue();
+
+        assertThat(delayQueue.getArguments())
+                .containsEntry("x-message-ttl", RabbitConfig.SECKILL_ORDER_CLOSE_DELAY_MS)
+                .containsEntry("x-dead-letter-exchange", RabbitConfig.SECKILL_CLOSE_EXCHANGE)
+                .containsEntry("x-dead-letter-routing-key", RabbitConfig.SECKILL_CLOSE_ROUTING_KEY);
+        assertThat(RabbitConfig.SECKILL_ORDER_CLOSE_DELAY_MS).isEqualTo(10 * 60 * 1000L);
+    }
+
+    /** cancelSeckill.lua 应原子回补库存并移除“已购”标记 */
+    @Test
+    void cancelSeckillLua_shouldRestoreStockAndRemoveOrderMark() throws Exception {
+        String lua = readResource("cancelSeckill.lua");
+
+        assertThat(lua).contains("srem");
+        assertThat(lua).contains("incrby");
+        assertThat(lua).contains("'seckill:stock:' .. ARGV[1]");
+        assertThat(lua).contains("'seckill:order:' .. ARGV[1]");
+    }
+
+    /** VoucherOrderServiceImpl 应存在监听关单队列的 @RabbitListener */
+    @Test
+    void voucherOrderService_shouldHaveCloseOrderListener() {
+        boolean hasCloseListener = Arrays.stream(VoucherOrderServiceImpl.class.getDeclaredMethods())
+                .filter(m -> m.isAnnotationPresent(RabbitListener.class))
+                .flatMap(m -> Arrays.stream(m.getAnnotation(RabbitListener.class).queues()))
+                .anyMatch(RabbitConfig.SECKILL_CLOSE_QUEUE::equals);
+
+        assertThat(hasCloseListener).isTrue();
     }
 }

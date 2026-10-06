@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -53,6 +54,13 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         SECKILL_SCRIPT = new DefaultRedisScript<>();
         SECKILL_SCRIPT.setLocation(new ClassPathResource("seckill.lua"));
         SECKILL_SCRIPT.setResultType(Long.class);
+    }
+
+    private static final DefaultRedisScript<Long> CANCEL_SCRIPT;
+    static {
+        CANCEL_SCRIPT = new DefaultRedisScript<>();
+        CANCEL_SCRIPT.setLocation(new ClassPathResource("cancelSeckill.lua"));
+        CANCEL_SCRIPT.setResultType(Long.class);
     }
 
     @Resource
@@ -98,6 +106,14 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         } catch (Exception e) {
             log.error("发布秒杀订单消息到RabbitMQ失败", e);
             return Result.fail("下单失败，请稍后重试");
+        }
+
+        // 发送延迟关单消息：10 分钟后未支付则自动关单并回补库存
+        // 失败仅记录日志，不阻断下单流程（订单仍可正常支付）
+        try {
+            rabbitTemplate.convertAndSend("", RabbitConfig.SECKILL_CLOSE_DELAY_QUEUE, orderMessage);
+        } catch (Exception e) {
+            log.error("发布延迟关单消息失败: orderId={}", orderId, e);
         }
 
         return Result.ok(orderId);
@@ -164,5 +180,70 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             log.error("库存不足，回滚订单: userId={}, voucherId={}", userId, voucherId);
             throw new RuntimeException("库存不足");
         }
+    }
+
+    /**
+     * 延迟关单消费者：处理“下单 10 分钟未支付”的订单，取消并回补库存。
+     */
+    @RabbitListener(queues = RabbitConfig.SECKILL_CLOSE_QUEUE)
+    public void handleVoucherOrderClose(Map<String, Object> message) {
+        if (message == null || message.isEmpty()) {
+            log.warn("收到空关单消息，忽略处理");
+            return;
+        }
+        Long orderId = Long.valueOf(message.get("orderId").toString());
+        Long voucherId = Long.valueOf(message.get("voucherId").toString());
+        Long userId = Long.valueOf(message.get("userId").toString());
+        self.handleOrderTimeout(orderId, voucherId, userId);
+    }
+
+    /**
+     * 取消超时未支付订单并回补库存。
+     * <p>为保证“关单/回补”最终一致：先 CAS 取消订单（仅未支付可取消），再原子回补 Redis 库存与已购标记。</p>
+     */
+    @Transactional
+    public void handleOrderTimeout(Long orderId, Long voucherId, Long userId) {
+        // 1. CAS 更新订单状态：仅将“未支付”订单置为“已取消”
+        boolean updated = update()
+                .set("status", 4)
+                .eq("id", orderId)
+                .eq("status", 1)
+                .update();
+        if (!updated) {
+            // 已支付 / 已取消 / 不存在：无需处理
+            log.info("订单无需关单: orderId={}", orderId);
+            return;
+        }
+
+        // 2. Redis 原子回补：恢复库存并移除“已购”标记（允许重新抢购）
+        Long removed = stringRedisTemplate.execute(
+                CANCEL_SCRIPT,
+                Collections.emptyList(),
+                voucherId.toString(), userId.toString()
+        );
+
+        // 3. 只有真正移除了“已购”标记，才回补数据库库存，避免重复关单导致库存虚增
+        if (removed != null && removed == 1L) {
+            seckillVoucherService.update()
+                    .setSql("stock = stock + 1")
+                    .eq("voucher_id", voucherId)
+                    .update();
+        }
+    }
+
+    /**
+     * 支付订单：仅未支付订单可支付成功。
+     */
+    @Transactional
+    public Result payOrder(Long orderId) {
+        Long userId = UserHolder.getUser().getId();
+        boolean updated = update()
+                .set("status", 2)
+                .set("pay_time", LocalDateTime.now())
+                .eq("id", orderId)
+                .eq("user_id", userId)
+                .eq("status", 1)
+                .update();
+        return updated ? Result.ok() : Result.fail("订单不存在或不可支付");
     }
 }
