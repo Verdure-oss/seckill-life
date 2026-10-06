@@ -17,11 +17,13 @@ import com.hmdp.service.IFollowService;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.SystemConstants;
 import com.hmdp.utils.UserHolder;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -79,6 +81,37 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         blog.setIsLike(score != null);
     }
 
+    /**
+     * 批量查询博文点赞状态：使用 Redis Pipeline 将 N 次 ZSCORE 合并为一次网络往返，
+     * 降低高并发下的网络 IO 次数。
+     */
+    private void fillBlogsLikedStatus(List<Blog> blogs) {
+        if (blogs == null || blogs.isEmpty()) {
+            return;
+        }
+        UserDTO user = UserHolder.getUser();
+        if (user == null) {
+            // 未登录，无需查询点赞状态
+            return;
+        }
+        String userIdStr = user.getId().toString();
+
+        List<Object> results = stringRedisTemplate.executePipelined(
+                (RedisCallback<Object>) connection -> {
+                    for (Blog blog : blogs) {
+                        String key = BLOG_LIKED_KEY + blog.getId();
+                        connection.zScore(
+                                key.getBytes(StandardCharsets.UTF_8),
+                                userIdStr.getBytes(StandardCharsets.UTF_8));
+                    }
+                    return null;
+                });
+
+        for (int i = 0; i < blogs.size(); i++) {
+            blogs.get(i).setIsLike(results.get(i) != null);
+        }
+    }
+
     private void queryBlogUser(Blog blog) {
         Long userId = blog.getUserId();
         User user = userService.getById(userId);
@@ -95,10 +128,9 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         // 获取当前页数据
         List<Blog> records = page.getRecords();
         // 查询用户
-        records.forEach(blog ->{
-            this.queryBlogUser(blog);
-            this.isBlogLiked(blog);
-        });
+        records.forEach(this::queryBlogUser);
+        // 批量查询点赞状态（Redis Pipeline 合并 N 次网络往返为 1 次）
+        this.fillBlogsLikedStatus(records);
         return Result.ok(records);
     }
 
@@ -207,12 +239,9 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         String idStr = StrUtil.join(",", ids);
         List<Blog> blogs = query().in("id", ids).last("ORDER BY FIELD(id," + idStr + ")").list();
 
-        for (Blog blog : blogs) {
-            // 5.1.查询blog有关的用户
-            queryBlogUser(blog);
-            // 5.2.查询blog是否被点赞
-            isBlogLiked(blog);
-        }
+        blogs.forEach(this::queryBlogUser);
+        // 批量查询点赞状态（Redis Pipeline 合并 N 次网络往返为 1 次）
+        this.fillBlogsLikedStatus(blogs);
 
         // 6.封装并返回
         ScrollResult r = new ScrollResult();
