@@ -21,6 +21,7 @@
 ### 缓存与一致性
 - **多级缓存**：Caffeine 本地缓存 → Redis → DB（`CacheClient.queryWithMultiLevelCache`）；**Redisson RBloomFilter**（`BloomFilterUtils`）在查 DB 前拦截不可能存在的 key 防穿透，启动时用 `BloomFilterWarmup` 预热现有店铺/券 id，新增店铺/秒杀券时实时登记。
 - **失效时机**：`CacheConsistencyManager` 在**事务提交后**（`afterCommit`）删除多级缓存，并**延迟二次删除**兜底读-改竞态（`cache.double-delete.enabled`）；多实例靠 Redis pub/sub(`cache:invalidate`) 广播失效本地缓存。
+- **Canal 标准版（可选，默认关闭）**：`canal.enabled=true` 时 `CanalCacheSyncListener` 订阅 MySQL binlog（订阅正则 `hmdp\\.tb_shop,hmdp\\.tb_voucher`），变更统一调 `CacheClient.evictMultiLevel`（本机+Redis+pub/sub 广播）；解析逻辑在 `CanalEntryParser`（表名→key 前缀映射、DELETE 取 before 主键、isKey 退化 id 列）。部署与 MySQL binlog 开启步骤见 `docs/canal-deploy.md`。注意：`canal.protocol` 在 canal.client 中声明为 optional，pom 已显式引入；canal.client 已排除 rocketmq/zookeeper 等无用传递依赖。
 - 其他：逻辑过期/互斥锁等查询策略保留在 `ShopServiceImpl`（当前默认走多级缓存）。
 
 ### AI 助手（默认关闭）
@@ -35,7 +36,7 @@
   - `application.yaml` —— 无凭据基础配置，激活 `local` profile；**随代码提交**。
   - `application-local.yaml` —— 含真实凭据（数据库/Redis 密码），已被 `.gitignore` 忽略，**禁止提交**。新环境复制 `application-example.yaml` 为 `application-local.yaml` 并填入密码。
   - `application-example.yaml` —— 无凭据模板，随代码提交。
-- **可配置项**（均在 `application.yaml`）：`bloom.warmup.enabled`（布隆预热）、`cache.double-delete.enabled/delay-ms`（延迟双删）、`hmdp.upload-dir`（图片上传目录，默认 Windows nginx 路径，Linux/CI 需覆盖）、`ai.openai.*`（AI 开关/Key，Key 走环境变量）。
+- **可配置项**（均在 `application.yaml`）：`bloom.warmup.enabled`（布隆预热）、`cache.double-delete.enabled/delay-ms`（延迟双删）、`hmdp.upload-dir`（图片上传目录，默认 Windows nginx 路径，Linux/CI 需覆盖）、`ai.openai.*`（AI 开关/Key，Key 走环境变量）、`canal.*`（Canal binlog 同步开关与连接参数，默认关闭）。
 - **构建与测试**：使用 Maven Wrapper。Windows：`mvnw.cmd test`；macOS/Linux：`./mvnw test`。首次执行会联网下载 Maven 与依赖。
 
 ## 注意事项
@@ -87,3 +88,4 @@
 > - `SeckillOrderConsistencyTest`：DB 唯一索引兜底、RabbitMQ 死信/延迟关单、`cancelSeckill.lua` 回补。
 > - `CacheClientTest`/`MultiLevelCacheTest`/`CacheConsistencyManagerTest`：逻辑过期、多级缓存、布隆拦截、提交后失效+延迟双删。
 > - `AIAssistantWiringTest`：AiServices 装配后工具真实执行、会话记忆接线。
+> - `CanalEntryParserTest`：binlog 解析（表过滤、DELETE/INSERT/UPDATE 主键提取、未知表/事务事件忽略）。

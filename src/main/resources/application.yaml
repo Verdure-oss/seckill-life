@@ -31,6 +31,13 @@ cache:
     delay-ms: 500  # 延迟二次删除间隔
 hmdp:
   upload-dir: 'E:\software\nginx-1.18.0\html\hmdp\imgs\' # 图片上传目录（Linux 环境改为 nginx 部署路径）
+canal:
+  enabled: false      # 标准版缓存一致性：binlog 订阅（需先部署 Canal Server，见 docs/canal-deploy.md）
+  host: 127.0.0.1     # Canal Server 地址
+  port: 11111         # Canal Server 端口
+  destination: example
+  batch-size: 100     # 单批拉取条数
+  connect-retry-interval-ms: 5000  # 连接失败重试间隔
 mybatis-plus:
   type-aliases-package: com.hmdp.entity # 别名扫描包
 logging:

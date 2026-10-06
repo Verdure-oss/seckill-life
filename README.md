@@ -70,6 +70,7 @@ RabbitMQ 异步落库（削峰）
 - **防穿透**：Redisson 分布式布隆过滤器（`bloom:shop` / `bloom:voucher`），启动时预热存量数据，新增实时登记。
 - **防击穿**：多级缓存下由本地缓存 + 互斥重建兜底。
 - **防雪崩**：缓存 TTL 加入随机因子（±10%），避免集体失效。
+- **Canal 标准版（可选）**：订阅 MySQL binlog（`tb_shop`/`tb_voucher`），把任意入口的 DB 变更统一转化为缓存失效（复用 `evictMultiLevel` 三段失效），与轻量版双通道互为兜底；默认关闭，部署见 `docs/canal-deploy.md`。
 
 ### 其他亮点
 
@@ -94,6 +95,7 @@ RabbitMQ 异步落库（削峰）
 src/main
 ├── java/com/hmdp
 │   ├── ai/            # AI 助手：ChatAssistant、AIChatService、ShopQueryTool、ReservationTool、RedisChatMemoryStore
+│   ├── canal/         # Canal binlog 订阅：CanalEntryParser、CanalCacheSyncListener（默认关闭）
 │   ├── config/        # RabbitConfig、RedissonConfig、MvcConfig、LangChain4jConfig、RedisMessageConfig、WebExceptionAdvice
 │   ├── controller/    # REST 接口层（user/shop/voucher/voucher-order/blog/follow/shop-type/upload/ai）
 │   ├── dto/           # 传输对象（Result、LoginFormDTO、ScrollResult、UserDTO）
@@ -151,6 +153,8 @@ mvnw.cmd spring-boot:run
 | `cache.double-delete.delay-ms` | `500` | 二次删除延迟间隔 |
 | `ai.openai.enabled` | `false` | AI 助手开关（开启需网络与 Key） |
 | `ai.openai.api-key` | `OPENAI_API_KEY` 环境变量 | OpenAI 兼容服务 Key；`base-url`/`model` 可改 |
+| `canal.enabled` | `false` | 标准版缓存一致性：Canal binlog 订阅（需部署 Canal Server） |
+| `canal.host` / `canal.port` / `canal.destination` / `canal.batch-size` | `127.0.0.1` / `11111` / `example` / `100` | Canal Server 连接与批次参数 |
 
 ## REST API 一览
 
@@ -226,6 +230,7 @@ mvnw.cmd spring-boot:run
   - `BloomFilterUtilsTest` / `MultiLevelCacheTest` / `CacheClientTest`：缓存与布隆各分支
   - `CacheConsistencyManagerTest`：事务提交后失效、延迟双删、开关
   - `AIAssistantWiringTest`：AiServices 装配、工具真实执行、会话记忆
+  - `CanalEntryParserTest`：binlog 条目解析（表过滤、DELETE/UPDATE 主键提取）
   - `BlogLikedPipelineTest`：Pipeline 批量点赞状态
 - 集成测试 `HmDianPingApplicationTests` 需真实 MySQL/Redis；GEO 预热为手工脚本，默认 `@Disabled`。
 

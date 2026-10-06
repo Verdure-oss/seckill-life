@@ -20,3 +20,12 @@ spring:
 # 图片上传目录（Linux 环境请改为 nginx/静态资源部署路径）
 hmdp:
   upload-dir: 'E:\software\nginx-1.18.0\html\hmdp\imgs\'
+
+# Canal 缓存同步（标准版缓存一致性）：默认关闭；开启需部署 Canal Server，步骤见 docs/canal-deploy.md
+canal:
+  enabled: false
+  host: 127.0.0.1
+  port: 11111
+  destination: example
+  batch-size: 100
+  connect-retry-interval-ms: 5000
