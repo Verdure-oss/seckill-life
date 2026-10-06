@@ -114,6 +114,12 @@
             <artifactId>langchain4j-core</artifactId>
             <version>1.0.0</version>
         </dependency>
+        <!-- AiServices / MessageWindowChatMemory 等服务层能力（工具调用接线所必陶） -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j</artifactId>
+            <version>1.0.0</version>
+        </dependency>
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-open-ai</artifactId>
