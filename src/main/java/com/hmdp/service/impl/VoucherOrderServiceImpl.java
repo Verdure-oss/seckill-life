@@ -3,6 +3,7 @@ package com.hmdp.service.impl;
 import com.hmdp.config.RabbitConfig;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.VoucherOrder;
+import com.hmdp.entity.SeckillVoucher;
 import com.hmdp.mapper.VoucherOrderMapper;
 import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
@@ -24,9 +25,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+
+import static com.hmdp.utils.RedisConstants.SECKILL_META_KEY;
 
 /**
  * <p>
@@ -245,5 +249,12 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                 .eq("status", 1)
                 .update();
         return updated ? Result.ok() : Result.fail("订单不存在或不可支付");
+    }
+
+    /**
+     * 将 LocalDateTime 按系统默认时区转换为 epoch 毫秒，与 System.currentTimeMillis() 可比。
+     */
+    private static long toEpochMilli(LocalDateTime dateTime) {
+        return dateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
     }
 }

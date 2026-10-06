@@ -1,13 +1,34 @@
--- Seckill lua script: atomic stock decrement
+-- Seckill lua script: atomic stock decrement with time-window validation
 -- Parameters:
 --   ARGV[1] = voucherId
 --   ARGV[2] = userId
 --   ARGV[3] = orderId
---   ARGV[4] = timestamp (for record)
+--   ARGV[4] = nowMs (current epoch millis)
+--   ARGV[5] = beginMs (seckill window start, 0 = no limit)
+--   ARGV[6] = endMs   (seckill window end, 0 = no limit)
+--
+-- Return codes:
+--   0 = success
+--   1 = out of stock
+--   2 = already purchased
+--   3 = seckill not started yet
+--   4 = seckill already ended
 
 local voucherId = ARGV[1]
 local userId = ARGV[2]
 local orderId = ARGV[3]
+
+local nowMs = tonumber(ARGV[4])
+local beginMs = tonumber(ARGV[5])
+local endMs = tonumber(ARGV[6])
+
+-- Time window validation (0 means unlimited)
+if beginMs ~= 0 and nowMs < beginMs then
+    return 3  -- Not started
+end
+if endMs ~= 0 and nowMs > endMs then
+    return 4  -- Ended
+end
 
 -- Stock key
 local stockKey = 'seckill:stock:' .. voucherId

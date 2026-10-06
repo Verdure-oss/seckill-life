@@ -67,6 +67,21 @@ class SeckillScriptTest {
         assertThat(RedisConstants.SECKILL_STOCK_KEY).isEqualTo("seckill:stock:");
     }
 
+    /** 3.5. seckill.lua 应包含时间窗口校验（未开始/已结束返回 3/4），且 Java 常量与其配套 */
+    @Test
+    void seckillLua_shouldValidateTimeWindow() throws Exception {
+        String lua = readResource("seckill.lua");
+
+        // 时间窗口：nowMs 与 beginMs/endMs 比较，0 表示不限
+        assertThat(lua).contains("beginMs ~= 0 and nowMs < beginMs");
+        assertThat(lua).contains("endMs ~= 0 and nowMs > endMs");
+        assertThat(lua).contains("return 3");
+        assertThat(lua).contains("return 4");
+
+        // Java 端秒杀时间元数据 key 常量存在
+        assertThat(RedisConstants.SECKILL_META_KEY).isEqualTo("seckill:meta:");
+    }
+
     /** 4. unlock.lua 中应为 KEYS（大写），而不是 KEYs */
     @Test
     void unlockLua_shouldUseUppercaseKeys() throws Exception {

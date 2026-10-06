@@ -14,10 +14,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
+import java.time.ZoneId;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static com.hmdp.utils.RedisConstants.BLOOM_FILTER_VOUCHER;
 import static com.hmdp.utils.RedisConstants.CACHE_VOUCHER_KEY;
+import static com.hmdp.utils.RedisConstants.SECKILL_META_KEY;
 import static com.hmdp.utils.RedisConstants.SECKILL_STOCK_KEY;
 
 /**
@@ -68,5 +72,24 @@ public class VoucherServiceImpl extends ServiceImpl<VoucherMapper, Voucher> impl
 
         // 登记布隆过滤器，避免缓存查询被前置拦截
         bloomFilterUtils.add(BLOOM_FILTER_VOUCHER, CACHE_VOUCHER_KEY + voucher.getId());
+
+        // 写入秒杀时间窗口元数据（epoch 毫秒），供秒杀 Lua 原子校验；无时间限制时仅写库存
+        if (voucher.getBeginTime() != null || voucher.getEndTime() != null) {
+            Map<String, String> meta = new HashMap<>();
+            if (voucher.getBeginTime() != null) {
+                meta.put("begin", String.valueOf(toEpochMilli(voucher.getBeginTime())));
+            }
+            if (voucher.getEndTime() != null) {
+                meta.put("end", String.valueOf(toEpochMilli(voucher.getEndTime())));
+            }
+            stringRedisTemplate.opsForHash().putAll(SECKILL_META_KEY + voucher.getId(), meta);
+        }
+    }
+
+    /**
+     * 将 LocalDateTime 按系统默认时区转换为 epoch 毫秒，与 System.currentTimeMillis() 可比。
+     */
+    private static long toEpochMilli(java.time.LocalDateTime dateTime) {
+        return dateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
     }
 }
