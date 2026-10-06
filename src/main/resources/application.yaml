@@ -12,6 +12,16 @@ spring:
     port: 5672
     username: guest
     password: guest
+    listener:
+      simple:
+        # 消费异常重试 3 次，耗尽后拒绝且不重新入队（配合队列的死信交换机进入 DLQ）
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 1000
+          multiplier: 2.0
+          max-interval: 5000
+        default-requeue-rejected: false
 mybatis-plus:
   type-aliases-package: com.hmdp.entity # 别名扫描包
 logging:
