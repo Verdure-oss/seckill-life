@@ -12,6 +12,10 @@ import org.springframework.stereotype.Service;
 import javax.annotation.Resource;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+
+import static com.hmdp.utils.RedisConstants.CACHE_SHOP_TYPE_KEY;
+import static com.hmdp.utils.RedisConstants.CACHE_SHOP_TYPE_TTL;
 
 /**
  * <p>
@@ -29,15 +33,12 @@ public class ShopTypeServiceImpl extends ServiceImpl<ShopTypeMapper, ShopType> i
 
     @Override
     public List<ShopType> queryTypeList() {
-        String key = "login:type";
-//        SetOperations<String, String> setOps = redisTemplate.opsForSet();
-        // 1. 从redis查询商铺缓存
-//        String shopTypeJson = setOps.members(key).toString();
+        String key = CACHE_SHOP_TYPE_KEY;
+        // 1. 从 redis 查询商铺分类缓存
         String shopTypeJson = stringRedisTemplate.opsForValue().get(key);
         // 2. 判断是否存在
         if (StrUtil.isNotBlank(shopTypeJson)) {
             // 3. 存在，转化为List返回
-//            return objectMapper.readValue(shopTypeJson, new TypeReference<List<ShopType>>(){});
             return JSONUtil.toList(shopTypeJson, ShopType.class);
         }
         // 4. 不存在，查询数据库
@@ -46,8 +47,8 @@ public class ShopTypeServiceImpl extends ServiceImpl<ShopTypeMapper, ShopType> i
         if (typeList.isEmpty()) {
             return new ArrayList<>();
         }
-        // 6. 存在，写入redis
-        stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(typeList));
+        // 6. 存在，写入redis（带 TTL，避免永久缓存）
+        stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(typeList), CACHE_SHOP_TYPE_TTL, TimeUnit.MINUTES);
         // 7. 返回
         return typeList;
 
