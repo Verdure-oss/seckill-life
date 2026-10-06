@@ -12,10 +12,11 @@ import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
-import org.springframework.aop.framework.AopContext;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
@@ -60,7 +61,10 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     @Resource
     private StringRedisTemplate stringRedisTemplate;
 
-    private IVoucherOrderService proxy;
+    /** 自注入代理，确保 @Transactional 在监听器方法（target 调用）中也能生效 */
+    @Lazy
+    @Resource
+    private IVoucherOrderService self;
 
     public Result seckillVoucher(Long voucherId) {
         //1.执行lua脚本
@@ -96,9 +100,6 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             return Result.fail("下单失败，请稍后重试");
         }
 
-        //获取代理对象
-        proxy = (IVoucherOrderService) AopContext.currentProxy();
-
         return Result.ok(orderId);
     }
 
@@ -131,7 +132,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         }
 
         try {
-            proxy.createVoucherOrder(voucherOrder);
+            self.createVoucherOrder(voucherOrder);
         } finally {
             lock.unlock();
         }
@@ -139,30 +140,29 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     @Transactional
     public void createVoucherOrder(VoucherOrder voucherOrder){
-        //一人一单
         Long userId = voucherOrder.getUserId();
+        Long voucherId = voucherOrder.getVoucherId();
 
-        //查询订单
-        int count = query().eq("user_id", userId).eq("voucher_id", voucherOrder.getVoucherId()).count();
-
-        //判断是否存在
-        if (count > 0) {
-            log.error("已购买");
+        // 1. 先插入订单，依赖 (user_id, voucher_id) 唯一索引作为最终幂等兜底。
+        //    一旦并发/异常造成重复消息，此处会抛出 DuplicateKeyException，直接视为已下单。
+        try {
+            save(voucherOrder);
+        } catch (DuplicateKeyException e) {
+            log.warn("重复下单拦截（唯一索引兜底）: userId={}, voucherId={}", userId, voucherId);
             return;
         }
 
-        //5.更新库存 cas法
+        // 2. 扣减库存（CAS 乐观更新，需保证 stock > 0）
         boolean success = seckillVoucherService.update()
-                .setSql("stock = stock - 1")//set stock = stock - 1
-                .eq("voucher_id", voucherOrder.getVoucherId()).gt("stock", 0)//where voucher_id = ? and stock = ?
+                .setSql("stock = stock - 1") // set stock = stock - 1
+                .eq("voucher_id", voucherId)
+                .gt("stock", 0) // where voucher_id = ? and stock > 0
                 .update();
 
-        //6.判断是否更新成功
+        // 3. 库存不足则回滚（订单插入也会随之回滚）
         if (!success) {
-            log.error("库存不足");
-            return;
+            log.error("库存不足，回滚订单: userId={}, voucherId={}", userId, voucherId);
+            throw new RuntimeException("库存不足");
         }
-
-        save(voucherOrder);
     }
 }
